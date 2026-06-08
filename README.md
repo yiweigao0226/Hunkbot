@@ -1,80 +1,123 @@
-# PR Review Bot
+# Hunkbot 🤖
 
-AI-powered GitHub PR reviewer. Posts inline code review comments using GPT-4o.
+An AI-powered GitHub App that automatically reviews pull requests using GPT-4o. When a PR is opened or updated, Hunkbot analyzes the diff, identifies bugs, security issues, and maintainability problems, and posts a structured review comment directly on the PR.
 
-## Architecture
+---
+
+## Example Review
+
+![Hunkbot reviewing a PR and identifying a bug in parking lot logic](docs/review-screenshot.png)
+
+Hunkbot caught a critical bug: removing `floor.decrease_spotAvailability()` would allow vehicles to park beyond capacity, causing over-parking. It flagged the issue with severity, file location, and a concrete fix suggestion.
+
+---
+
+## How It Works
 
 ```
-GitHub PR Event
-    ↓
-POST /github/webhook  (FastAPI, signature-verified)
-    ↓
-diff_processor.py     (filter files, truncate, extract context)
-    ↓
-llm_reviewer.py       (structured prompt → GPT-4o → PRReviewResult)
-    ↓
-github_service.py     (post inline comments via GitHub App API)
+GitHub PR opened/updated
+        ↓
+POST /github/webhook        ← HMAC-SHA256 signature verified
+        ↓
+diff_processor.py           ← filter lock files, truncate large diffs
+        ↓
+llm_reviewer.py             ← GPT-4o structured output → PRReviewResult
+        ↓
+github_service.py           ← JWT auth → post review comment
 ```
 
-## Setup
+1. GitHub sends a webhook event to Hunkbot when a PR is opened or updated
+2. The diff is filtered (lock files, generated code removed) and truncated to stay within token limits
+3. GPT-4o reviews the diff and returns a structured JSON response (Pydantic-validated)
+4. Hunkbot posts the review back to GitHub with severity labels, file locations, and fix suggestions
 
-### 1. Install dependencies
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Web framework | FastAPI + Uvicorn |
+| LLM | GPT-4o (OpenAI structured outputs) |
+| GitHub integration | PyGithub + GitHub App JWT auth |
+| Data validation | Pydantic v2 |
+| Deployment | Railway |
+| Language | Python 3.12 |
+
+---
+
+## Features
+
+- **Structured reviews** — every comment includes severity (`error` / `warning` / `suggestion`), category (`bug` / `security` / `performance` / `style` / `maintainability`), file path, line number, and a fix suggestion
+- **Smart filtering** — skips lock files (`package-lock.json`, `poetry.lock`), build artifacts, and auto-generated code
+- **Token-aware** — truncates large diffs to stay within context limits
+- **Async processing** — webhook returns 200 immediately; review runs in background so GitHub never times out
+- **Secure** — HMAC-SHA256 webhook signature verification; GitHub App JWT authentication (no long-lived tokens)
+
+---
+
+## Local Development
+
+### Prerequisites
+- Python 3.12
+- A GitHub App ([create one here](https://github.com/settings/apps/new))
+- OpenAI API key
+
+### Setup
+
 ```bash
+# Clone and install
+git clone https://github.com/yiweigao0226/Hunkbot.git
+cd Hunkbot
 python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
+source .venv/bin/activate
 pip install -r requirements.txt
-```
 
-### 2. Create a GitHub App
-1. Go to GitHub → Settings → Developer settings → GitHub Apps → New GitHub App
-2. Set Webhook URL to your public URL (use [ngrok](https://ngrok.com) for local dev)
-3. Set Webhook secret (save it — goes in `.env`)
-4. Permissions needed:
-   - Pull requests: **Read & Write**
-   - Contents: **Read**
-5. Generate a private key → download the `.pem` file → put it in project root
-
-### 3. Configure environment
-```bash
+# Configure
 cp .env.example .env
 # Fill in GITHUB_APP_ID, GITHUB_WEBHOOK_SECRET, OPENAI_API_KEY
-```
+# Place your GitHub App private key at ./private-key.pem
 
-### 4. Run locally
-```bash
-# Terminal 1: start the server
+# Run
 uvicorn app.main:app --reload --port 8000
 
-# Terminal 2: expose to GitHub via ngrok
+# Expose to GitHub (for local testing)
 ngrok http 8000
-# Copy the https://xxx.ngrok.io URL → set as webhook URL in GitHub App settings
 ```
 
-### 5. Install your GitHub App on a repo
-Go to your GitHub App → Install App → select a repo → open a PR → watch the bot comment!
+### Run Tests
 
-## Running Tests
 ```bash
 pytest tests/ -v
 ```
 
+---
+
 ## Project Structure
+
 ```
-pr-review-bot/
+Hunkbot/
 ├── app/
-│   ├── main.py                  # FastAPI app
+│   ├── main.py                  # FastAPI app entry point
 │   ├── api/
 │   │   └── webhook.py           # POST /github/webhook
 │   ├── core/
 │   │   ├── config.py            # Settings (pydantic-settings)
-│   │   └── models.py            # Pydantic models (PRReviewResult, etc.)
+│   │   └── models.py            # Pydantic models
 │   └── services/
 │       ├── diff_processor.py    # Parse & filter PR diffs
-│       ├── llm_reviewer.py      # OpenAI structured output
+│       ├── llm_reviewer.py      # GPT-4o structured output
 │       └── github_service.py    # GitHub App auth + post review
 └── tests/
     └── test_diff_processor.py
 ```
 
-## Resume Bullet Points (fill in numbers after running it)
-> Built an AI-powered GitHub PR review bot; designed a diff-chunking pipeline with file filtering and context truncation, GPT-4o structured outputs (Pydantic-validated), and dynamic rule injection; FastAPI webhook backend with HMAC-SHA256 verification; reduced per-review latency to ~Xs (p50) at ~$X/review cost.
+---
+
+## Deployment
+
+Hunkbot is deployed on Railway. Every push to `main` triggers an automatic redeploy.
+
+The GitHub App webhook URL is set to `https://hunkbot-production.up.railway.app/github/webhook`.
+
+For production, the GitHub App private key is stored as a base64-encoded environment variable (`GITHUB_PRIVATE_KEY_BASE64`) rather than a file.
