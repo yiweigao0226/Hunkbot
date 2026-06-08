@@ -8,14 +8,17 @@ GitHub App auth flow:
 
 This is more secure than OAuth tokens and is the standard for bots.
 """
+import base64
+import os
 import time
-import jwt
+
 import httpx
-from github import Github, GithubIntegration
+import jwt
+from github import Github
 from github.PullRequest import PullRequest
 
 from app.core.config import settings
-from app.core.models import PRReviewResult, ReviewComment
+from app.core.models import PRReviewResult
 
 
 def _get_installation_token(installation_id: int) -> str:
@@ -23,14 +26,19 @@ def _get_installation_token(installation_id: int) -> str:
     Generate a short-lived installation access token for the given installation.
     Valid for 1 hour (GitHub limit).
     """
-    with open(settings.github_private_key_path, "r") as f:
-        private_key = f.read()
+    # Support base64 env var (Railway/production) or file path (local dev)
+    key_base64 = os.environ.get("GITHUB_PRIVATE_KEY_BASE64")
+    if key_base64:
+        private_key = base64.b64decode(key_base64).decode("utf-8")
+    else:
+        with open(settings.github_private_key_path, "r") as f:
+            private_key = f.read()
 
-    # Create a JWT signed with our private key (valid for 10 minutes)
+    # Create a JWT signed with our private key (valid for 5 minutes)
     now = int(time.time())
     payload = {
         "iat": now - 60,   # issued slightly in the past to handle clock skew
-        "exp": now + 300,  # 10 minutes
+        "exp": now + 300,  # 5 minutes
         "iss": settings.github_app_id,
     }
     jwt_token = jwt.encode(payload, private_key, algorithm="RS256")
@@ -67,8 +75,8 @@ def post_review(pr: PullRequest, result: PRReviewResult) -> None:
     else:
         event = "COMMENT"
 
-    # Build inline comment payloads
-    commit = pr.get_commits().reversed[0]  # latest commit
+    # Get latest commit
+    commit = pr.get_commits().reversed[0]
 
     severity_emoji = {"error": "🔴", "warning": "🟡", "suggestion": "💡"}
 
