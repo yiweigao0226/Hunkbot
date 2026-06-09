@@ -73,6 +73,9 @@ async def _handle_pr_event(payload: dict) -> None:
             patterns = await get_repo_patterns(db, repo_full_name)
             if patterns:
                 logger.info(f"Injecting {len(patterns)} historical patterns for {repo_full_name}")
+                logger.info(f"Historical patterns: {patterns}")
+            else:
+                logger.info(f"No historical patterns found for {repo_full_name}")
 
         # 4. LLM review with historical context
         result = await review_pr(ctx, historical_patterns=patterns)
