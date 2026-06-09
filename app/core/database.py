@@ -15,6 +15,7 @@ class Base(DeclarativeBase):
 engine = create_async_engine(
     settings.database_url.replace("postgresql://", "postgresql+asyncpg://"),
     echo=settings.debug,
+    connect_args={"ssl": "require"},
 )
 
 AsyncSessionLocal = async_sessionmaker(
