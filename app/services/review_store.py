@@ -38,16 +38,16 @@ async def save_review(db: AsyncSession, repo: str, pr_number: int, result: PRRev
 
 
 async def get_repo_patterns(db: AsyncSession, repo: str, limit: int = 5) -> list[str]:
-    """
-    Retrieve the most common issue categories and examples from past reviews for a repo.
-    Returns a list of pattern strings to inject into the LLM prompt.
-    """
-    # Get most frequent categories for this repo
     result = await db.execute(
-        select(ReviewComment.category, ReviewComment.comment)
+        select(
+            ReviewComment.category,
+            ReviewComment.severity,
+            func.count().label("count")
+        )
         .join(Review)
         .where(Review.repo == repo)
-        .order_by(func.random())
+        .group_by(ReviewComment.category, ReviewComment.severity)
+        .order_by(func.count().desc())
         .limit(limit)
     )
     rows = result.fetchall()
@@ -56,7 +56,7 @@ async def get_repo_patterns(db: AsyncSession, repo: str, limit: int = 5) -> list
         return []
 
     patterns = []
-    for category, comment in rows:
-        patterns.append(f"[{category.upper()}] {comment}")
+    for category, severity, count in rows:
+        patterns.append(f"{severity.upper()} {category} issues have appeared {count} time(s) in this repo")
 
     return patterns
