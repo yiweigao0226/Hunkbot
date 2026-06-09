@@ -38,11 +38,11 @@ class PRReviewResult(BaseModel):
 class FileDiff(BaseModel):
     """Processed diff for a single file."""
     filename: str
-    status: str          # added, modified, removed, renamed
+    status: str         
     additions: int
     deletions: int
-    patch: str           # the actual diff text (already truncated if needed)
-    language: str = ""   # inferred from file extension
+    patch: str         
+    language: str = ""  
 
 
 class PRContext(BaseModel):

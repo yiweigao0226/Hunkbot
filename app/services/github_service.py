@@ -26,7 +26,6 @@ def _get_installation_token(installation_id: int) -> str:
     Generate a short-lived installation access token for the given installation.
     Valid for 1 hour (GitHub limit).
     """
-    # Support base64 env var (Railway/production) or file path (local dev)
     key_base64 = os.environ.get("GITHUB_PRIVATE_KEY_BASE64")
     if key_base64:
         private_key = base64.b64decode(key_base64).decode("utf-8")
@@ -34,16 +33,14 @@ def _get_installation_token(installation_id: int) -> str:
         with open(settings.github_private_key_path, "r") as f:
             private_key = f.read()
 
-    # Create a JWT signed with our private key (valid for 5 minutes)
     now = int(time.time())
     payload = {
-        "iat": now - 60,   # issued slightly in the past to handle clock skew
-        "exp": now + 300,  # 5 minutes
+        "iat": now - 60, 
+        "exp": now + 300, 
         "iss": settings.github_app_id,
     }
     jwt_token = jwt.encode(payload, private_key, algorithm="RS256")
 
-    # Exchange JWT for installation token
     response = httpx.post(
         f"https://api.github.com/app/installations/{installation_id}/access_tokens",
         headers={
@@ -67,7 +64,6 @@ def post_review(pr: PullRequest, result: PRReviewResult) -> None:
     - Uses GitHub's createReview API to batch all comments in one call
     - Sets the review state: APPROVE, REQUEST_CHANGES, or COMMENT
     """
-    # Map our model to GitHub review state
     if result.approved and not any(c.severity == "error" for c in result.comments):
         event = "APPROVE"
     elif any(c.severity == "error" for c in result.comments):
@@ -75,7 +71,6 @@ def post_review(pr: PullRequest, result: PRReviewResult) -> None:
     else:
         event = "COMMENT"
 
-    # Get latest commit
     commit = pr.get_commits().reversed[0]
 
     severity_emoji = {"error": "🔴", "warning": "🟡", "suggestion": "💡"}
@@ -96,5 +91,5 @@ def post_review(pr: PullRequest, result: PRReviewResult) -> None:
         commit=commit,
         body=review_body,
         event=event,
-        comments=[],  # skip inline to avoid GitHub line resolution errors
+        comments=[], 
     )
