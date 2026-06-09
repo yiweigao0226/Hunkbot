@@ -56,19 +56,16 @@ async def _handle_pr_event(payload: dict) -> None:
     logger.info(f"Reviewing PR #{pr_number} in {repo_full_name} (action={action})")
 
     try:
-        # 1. Authenticate and fetch PR object
         gh = get_github_client(installation_id)
         repo = gh.get_repo(repo_full_name)
         pr = repo.get_pull(pr_number)
 
-        # 2. Process diff
         ctx = process_pr_files(pr, custom_rules=[])
 
         if not ctx.files:
             logger.info(f"PR #{pr_number}: no reviewable files after filtering, skipping")
             return
 
-        # 3. Fetch historical patterns for this repo
         async with AsyncSessionLocal() as db:
             patterns = await get_repo_patterns(db, repo_full_name)
             if patterns:
@@ -77,17 +74,14 @@ async def _handle_pr_event(payload: dict) -> None:
             else:
                 logger.info(f"No historical patterns found for {repo_full_name}")
 
-        # 4. LLM review with historical context
         result = await review_pr(ctx, historical_patterns=patterns)
         logger.info(
             f"PR #{pr_number}: review complete — "
             f"{len(result.comments)} comments, approved={result.approved}"
         )
 
-        # 5. Post review back to GitHub
         post_review(pr, result)
 
-        # 6. Save results to DB
         async with AsyncSessionLocal() as db:
             await save_review(db, repo_full_name, pr_number, result)
 

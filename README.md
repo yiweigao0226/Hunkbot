@@ -1,20 +1,23 @@
 # Hunkbot 🤖
 
-An AI-powered GitHub App that automatically reviews pull requests using GPT-4o. When a PR is opened or updated, Hunkbot analyzes the diff, identifies bugs, security issues, and maintainability problems, and posts a structured review comment directly on the PR.
+An AI-powered GitHub App that automatically reviews pull requests. When a PR is opened or updated, Hunkbot analyzes the diff, identifies bugs, security issues, and maintainability problems, and posts a structured review comment directly on the PR — with memory of past issues in the same repo.
 
 ![Hunkbot in action](docs/demo.gif)
+
+**Live**: [hunkbot-production.up.railway.app/health](https://hunkbot-production.up.railway.app/health)
 
 ---
 
 ## What It Does
 
-Hunkbot caught 3 real issues in a single PR review:
+Hunkbot reviews every PR automatically and learns from past issues in the same repo:
 
-![Hunkbot review showing 3 issues found in a parking lot PR](docs/review-screenshot.png)
+![Hunkbot review showing recurring bug patterns](docs/review-screenshot.png)
 
-- 🔴 **BUG** — `active_tickets[vehicle.get_plate()]` will raise a `KeyError` if the vehicle is not found. Suggested adding a guard check before accessing the dict.
-- 🔴 **STYLE** — Class `main` should be capitalized to `Main` per PEP 8.
-- 🟡 **MAINTAINABILITY** — `find_spot()` uses hardcoded logic; suggested a mapping-based approach to support new vehicle types without modifying core logic.
+After multiple PRs, Hunkbot surfaces recurring patterns:
+- 🔴 **BUG** — `main` class should not have a method named `main`; confusing and can lead to errors.
+- 🔴 **BUG** — `unpark_vehicle` assumes the vehicle is always parked; will raise a `KeyError`. **Recurring pattern: ERROR bug issues have appeared 13 time(s) in this repo.**
+- 🟡 **PERFORMANCE** — `calculate_total` rounds up inefficiently. **Recurring pattern: WARNING performance issues have appeared 4 time(s) in this repo.**
 
 ---
 
@@ -24,8 +27,9 @@ Hunkbot caught 3 real issues in a single PR review:
 
 1. GitHub sends a signed webhook event when a PR is opened or updated
 2. The diff is filtered (lock files, build artifacts, deleted files removed) and truncated to stay within token limits
-3. GPT-4o reviews the diff and returns a validated JSON response with severity, category, file, line, and fix suggestion for each issue
-4. Hunkbot posts the structured review back to the PR
+3. Historical bug patterns for the repo are queried from PostgreSQL and injected into the LLM prompt
+4. The LLM reviews the diff and returns a validated JSON response with severity, category, file, line, and fix suggestion for each issue
+5. Hunkbot posts the structured review back to the PR and persists the results to the database
 
 ---
 
@@ -34,9 +38,10 @@ Hunkbot caught 3 real issues in a single PR review:
 | Layer | Technology |
 |-------|-----------|
 | Web framework | FastAPI + Uvicorn |
-| LLM | GPT-4o (OpenAI structured outputs) |
+| LLM | GPT-4o / Claude — provider-agnostic interface |
 | GitHub integration | PyGithub + GitHub App JWT auth |
 | Data validation | Pydantic v2 |
+| Database | PostgreSQL + SQLAlchemy async |
 | Containerization | Docker |
 | Deployment | Railway (auto-redeploy on push) |
 | Language | Python 3.12 |
@@ -45,11 +50,13 @@ Hunkbot caught 3 real issues in a single PR review:
 
 ## Features
 
+- **Retrieval-augmented review** — queries per-repo historical bug patterns from PostgreSQL and injects them into LLM context, enabling recurring issue detection across PRs
+- **Provider-agnostic LLM interface** — supports OpenAI and Anthropic via a unified abstraction layer; switchable via `LLM_PROVIDER` environment variable
 - **Structured reviews** — every comment includes severity (`error` / `warning` / `suggestion`), category (`bug` / `security` / `performance` / `style` / `maintainability`), file path, line number, and a concrete fix suggestion
 - **Smart filtering** — skips lock files, build artifacts, auto-generated code, and deleted files
 - **Token-aware** — truncates large diffs to stay within LLM context limits; configurable per-file line limit
 - **Async processing** — webhook returns 200 immediately; review runs in background so GitHub never retries due to timeout
-- **Secure** — HMAC-SHA256 webhook signature verification; GitHub App JWT authentication with short-lived installation tokens (no long-lived OAuth tokens)
+- **Secure** — HMAC-SHA256 webhook signature verification; GitHub App JWT authentication with short-lived installation tokens
 - **Dockerized** — consistent environment across local dev and production; base64-encoded private key support for secret management in cloud environments
 
 ---
@@ -59,8 +66,9 @@ Hunkbot caught 3 real issues in a single PR review:
 ### Prerequisites
 - Python 3.12
 - Docker
+- PostgreSQL (or use Railway's hosted instance)
 - A GitHub App ([create one here](https://github.com/settings/apps/new))
-- OpenAI API key
+- OpenAI or Anthropic API key
 
 ### Setup
 
@@ -74,7 +82,7 @@ pip install -r requirements.txt
 
 # Configure
 cp .env.example .env
-# Fill in GITHUB_APP_ID, GITHUB_WEBHOOK_SECRET, OPENAI_API_KEY
+# Fill in GITHUB_APP_ID, GITHUB_WEBHOOK_SECRET, OPENAI_API_KEY, DATABASE_URL
 # Place your GitHub App private key at ./private-key.pem
 
 # Run locally
@@ -89,6 +97,14 @@ ngrok http 8000
 ```bash
 docker build -t hunkbot .
 docker run -p 8080:8080 --env-file .env hunkbot
+```
+
+### Switch LLM Provider
+
+```bash
+# Use Anthropic instead of OpenAI
+LLM_PROVIDER=anthropic
+ANTHROPIC_API_KEY=sk-ant-...
 ```
 
 ### Run Tests
@@ -109,10 +125,14 @@ Hunkbot/
 │   │   └── webhook.py           # POST /github/webhook
 │   ├── core/
 │   │   ├── config.py            # Settings (pydantic-settings)
-│   │   └── models.py            # Pydantic models (PRReviewResult, ReviewComment)
+│   │   ├── database.py          # SQLAlchemy async engine + session
+│   │   ├── models.py            # Pydantic models (PRReviewResult, ReviewComment)
+│   │   └── models_db.py         # SQLAlchemy ORM models (Review, ReviewComment)
 │   └── services/
 │       ├── diff_processor.py    # Parse, filter, and truncate PR diffs
-│       ├── llm_reviewer.py      # GPT-4o structured output review
+│       ├── llm_providers.py     # Provider-agnostic LLM interface
+│       ├── llm_reviewer.py      # Prompt builder + review orchestration
+│       ├── review_store.py      # Persist and query review history
 │       └── github_service.py    # GitHub App JWT auth + post review
 └── tests/
     └── test_diff_processor.py   # Unit tests for diff processing logic
