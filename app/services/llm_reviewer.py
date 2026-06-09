@@ -38,7 +38,7 @@ def _build_system_prompt(custom_rules: list[str], historical_patterns: list[str]
 
     if historical_patterns:
         patterns_text = "\n".join(f"- {p}" for p in historical_patterns)
-        base += f"\nThis repo has had these recurring issues in past PRs — pay extra attention:\n{patterns_text}\n"
+        base += f"\nThis repo has a history of recurring issues. When you find similar problems, explicitly mention that this is a recurring pattern:\n{patterns_text}\n"
 
     return base
 
