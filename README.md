@@ -4,8 +4,6 @@ An AI-powered GitHub App that automatically reviews pull requests using GPT-4o. 
 
 ![Hunkbot in action](docs/demo.gif)
 
-**Live**: [hunkbot-production.up.railway.app/health](https://hunkbot-production.up.railway.app/health)
-
 ---
 
 ## What It Does
@@ -22,17 +20,7 @@ Hunkbot caught 3 real issues in a single PR review:
 
 ## How It Works
 
-```
-GitHub PR opened / new commit pushed
-            ↓
-POST /github/webhook        ← HMAC-SHA256 signature verified
-            ↓
-diff_processor.py           ← filter lock files, truncate large diffs, infer language
-            ↓
-llm_reviewer.py             ← GPT-4o structured output → PRReviewResult (Pydantic-validated)
-            ↓
-github_service.py           ← GitHub App JWT auth → post review comment
-```
+![Architecture](docs/architecture.svg)
 
 1. GitHub sends a signed webhook event when a PR is opened or updated
 2. The diff is filtered (lock files, build artifacts, deleted files removed) and truncated to stay within token limits

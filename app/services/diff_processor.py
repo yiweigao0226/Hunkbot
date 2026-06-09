@@ -14,8 +14,6 @@ from github.File import File
 from app.core.config import settings
 from app.core.models import FileDiff, PRContext
 
-
-# Files to skip entirely — not useful for code review
 SKIP_PATTERNS = [
     r"package-lock\.json$",
     r"yarn\.lock$",
@@ -26,9 +24,9 @@ SKIP_PATTERNS = [
     r"dist/",
     r"build/",
     r"__pycache__/",
-    r"\.pb\.go$",        # protobuf generated
-    r"_pb2\.py$",        # protobuf generated
-    r"migrations/\d+",  # DB migrations (too noisy)
+    r"\.pb\.go$",       
+    r"_pb2\.py$",    
+    r"migrations/\d+",  
 ]
 
 EXTENSION_TO_LANGUAGE = {
@@ -79,9 +77,9 @@ def process_pr_files(pr: PullRequest, custom_rules: list[str] = []) -> PRContext
         if _should_skip(f.filename):
             continue
         if f.status == "removed":
-            continue  # No point reviewing deleted files
+            continue 
         if not f.patch:
-            continue  # Binary file or empty diff
+            continue
 
         patch = _truncate_patch(f.patch, settings.max_lines_per_file)
         processed.append(
@@ -100,7 +98,7 @@ def process_pr_files(pr: PullRequest, custom_rules: list[str] = []) -> PRContext
         repo=pr.base.repo.full_name,
         pr_number=pr.number,
         pr_title=pr.title,
-        pr_description=body[:1000],  # cap description length
+        pr_description=body[:1000],
         author=pr.user.login,
         base_branch=pr.base.ref,
         head_branch=pr.head.ref,
