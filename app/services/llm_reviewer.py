@@ -79,12 +79,11 @@ async def review_pr(ctx: PRContext) -> PRReviewResult:
             {"role": "user", "content": user_prompt},
         ],
         response_format=PRReviewResult,
-        temperature=0.2,  # low temp for consistent, factual review
+        temperature=0.2, 
     )
 
     result = completion.choices[0].message.parsed
     if result is None:
-        # Fallback if parsing failed (shouldn't happen with structured output)
         raise ValueError("LLM returned unparseable response")
 
     return result

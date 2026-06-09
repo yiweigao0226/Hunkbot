@@ -10,9 +10,6 @@ from app.services.diff_processor import (
     process_pr_files,
 )
 
-
-# --- Unit tests for helper functions ---
-
 def test_should_skip_lock_files():
     assert _should_skip("package-lock.json") is True
     assert _should_skip("yarn.lock") is True
@@ -38,21 +35,19 @@ def test_infer_language():
 
 def test_truncate_patch_short():
     patch = "\n".join([f"line {i}" for i in range(10)])
-    assert _truncate_patch(patch, 20) == patch  # no truncation needed
+    assert _truncate_patch(patch, 20) == patch 
 
 
 def test_truncate_patch_long():
     patch = "\n".join([f"line {i}" for i in range(100)])
     result = _truncate_patch(patch, 20)
-    assert len(result.splitlines()) == 21  # 20 lines + truncation notice
+    assert len(result.splitlines()) == 21 
     assert "truncated" in result
 
 
 def test_truncate_patch_empty():
     assert _truncate_patch("", 100) == ""
 
-
-# --- Integration-style test for process_pr_files ---
 
 def _make_mock_file(filename, status="modified", patch="@@ -1,3 +1,4 @@\n+new line\n old line"):
     f = MagicMock()

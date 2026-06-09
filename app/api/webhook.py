@@ -21,9 +21,7 @@ from app.services.github_service import get_github_client, post_review
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# PR actions that should trigger a review
 REVIEW_ACTIONS = {"opened", "synchronize", "reopened"}
-
 
 def _verify_signature(payload: bytes, signature_header: str) -> bool:
     """
@@ -60,12 +58,10 @@ async def _handle_pr_event(payload: dict) -> None:
     logger.info(f"Reviewing PR #{pr_number} in {repo_full_name} (action={action})")
 
     try:
-        # 1. Authenticate and fetch PR object
         gh = get_github_client(installation_id)
         repo = gh.get_repo(repo_full_name)
         pr = repo.get_pull(pr_number)
 
-        # 2. Process diff into structured context
         # TODO: load custom_rules from DB per repo (hardcoded empty for now)
         ctx = process_pr_files(pr, custom_rules=[])
 
@@ -73,14 +69,12 @@ async def _handle_pr_event(payload: dict) -> None:
             logger.info(f"PR #{pr_number}: no reviewable files after filtering, skipping")
             return
 
-        # 3. LLM review
         result = await review_pr(ctx)
         logger.info(
             f"PR #{pr_number}: review complete — "
             f"{len(result.comments)} comments, approved={result.approved}"
         )
 
-        # 4. Post review back to GitHub
         post_review(pr, result)
 
     except Exception as e:
@@ -97,7 +91,6 @@ async def github_webhook(
 ):
     payload_bytes = await request.body()
 
-    # Security: reject requests with invalid signature
     if not _verify_signature(payload_bytes, x_hub_signature_256):
         raise HTTPException(status_code=401, detail="Invalid webhook signature")
 
@@ -106,9 +99,7 @@ async def github_webhook(
     if x_github_event == "pull_request":
         action = payload.get("action")
         if action in REVIEW_ACTIONS:
-            # Run review in background — respond 200 to GitHub immediately
             background_tasks.add_task(_handle_pr_event, payload)
             return {"status": "review queued", "action": action}
 
-    # Acknowledge other events without processing
     return {"status": "ignored", "event": x_github_event}
