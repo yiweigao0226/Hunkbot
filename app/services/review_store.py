@@ -22,7 +22,7 @@ async def save_review(db: AsyncSession, repo: str, pr_number: int, result: PRRev
         approved=result.approved,
     )
     db.add(review)
-    await db.flush()  # get review.id without committing
+    await db.flush()
 
     for c in result.comments:
         db.add(ReviewComment(

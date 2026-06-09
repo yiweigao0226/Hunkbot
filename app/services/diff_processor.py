@@ -68,7 +68,6 @@ def process_pr_files(pr: PullRequest, custom_rules: list[str] = []) -> PRContext
     """
     files: list[File] = list(pr.get_files())
 
-    # Warn if too many files — still process up to the limit
     if len(files) > settings.max_files_per_pr:
         files = files[: settings.max_files_per_pr]
 
