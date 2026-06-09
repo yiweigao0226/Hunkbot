@@ -19,5 +19,7 @@ class Settings(BaseSettings):
     max_lines_per_file: int = 500
     context_lines: int = 5
 
+    database_url: str = ""
+
 
 settings = Settings()

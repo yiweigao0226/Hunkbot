@@ -12,6 +12,8 @@ import hmac
 import logging
 
 from fastapi import APIRouter, Header, HTTPException, Request, BackgroundTasks
+from app.core.database import AsyncSessionLocal
+from app.services.review_store import save_review, get_repo_patterns
 
 from app.core.config import settings
 from app.services.diff_processor import process_pr_files
@@ -40,10 +42,6 @@ def _verify_signature(payload: bytes, signature_header: str) -> bool:
 
 
 async def _handle_pr_event(payload: dict) -> None:
-    """
-    Core review logic — runs in background so webhook returns 200 immediately.
-    GitHub retries if we don't respond within ~10 seconds.
-    """
     action = payload.get("action")
     pr_data = payload.get("pull_request", {})
     installation_id = payload.get("installation", {}).get("id")
@@ -58,28 +56,43 @@ async def _handle_pr_event(payload: dict) -> None:
     logger.info(f"Reviewing PR #{pr_number} in {repo_full_name} (action={action})")
 
     try:
+        # 1. Authenticate and fetch PR object
         gh = get_github_client(installation_id)
         repo = gh.get_repo(repo_full_name)
         pr = repo.get_pull(pr_number)
 
-        # TODO: load custom_rules from DB per repo (hardcoded empty for now)
+        # 2. Process diff
         ctx = process_pr_files(pr, custom_rules=[])
 
         if not ctx.files:
             logger.info(f"PR #{pr_number}: no reviewable files after filtering, skipping")
             return
 
-        result = await review_pr(ctx)
+        # 3. Fetch historical patterns for this repo
+        async with AsyncSessionLocal() as db:
+            patterns = await get_repo_patterns(db, repo_full_name)
+            if patterns:
+                logger.info(f"Injecting {len(patterns)} historical patterns for {repo_full_name}")
+                logger.info(f"Historical patterns: {patterns}")
+            else:
+                logger.info(f"No historical patterns found for {repo_full_name}")
+
+        # 4. LLM review with historical context
+        result = await review_pr(ctx, historical_patterns=patterns)
         logger.info(
             f"PR #{pr_number}: review complete — "
             f"{len(result.comments)} comments, approved={result.approved}"
         )
 
+        # 5. Post review back to GitHub
         post_review(pr, result)
+
+        # 6. Save results to DB
+        async with AsyncSessionLocal() as db:
+            await save_review(db, repo_full_name, pr_number, result)
 
     except Exception as e:
         logger.exception(f"Failed to review PR #{pr_number} in {repo_full_name}: {e}")
-        # Don't re-raise — we don't want GitHub to retry (it would double-review)
 
 
 @router.post("/webhook")
