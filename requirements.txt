@@ -32,3 +32,5 @@ ruff==0.6.9                   # fast linter + formatter (replaces flake8/black)
 sqlalchemy==2.0.36
 asyncpg==0.29.0
 greenlet==3.1.1
+
+anthropic==0.28.0

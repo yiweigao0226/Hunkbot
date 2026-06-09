@@ -1,15 +1,16 @@
 """
 LLM review service.
 - Builds a structured prompt from PRContext
-- Calls OpenAI with response_format=PRReviewResult (structured output)
+- Calls LLM via provider-agnostic interface
 - Returns a validated PRReviewResult
 """
-from openai import AsyncOpenAI
+import json
+import logging
 
-from app.core.config import settings
 from app.core.models import PRContext, PRReviewResult
+from app.services.llm_providers import get_provider
 
-client = AsyncOpenAI(api_key=settings.openai_api_key)
+logger = logging.getLogger(__name__)
 
 
 def _build_system_prompt(custom_rules: list[str], historical_patterns: list[str] = []) -> str:
@@ -69,21 +70,19 @@ def _build_user_prompt(ctx: PRContext) -> str:
 
 
 async def review_pr(ctx: PRContext, historical_patterns: list[str] = []) -> PRReviewResult:
+    """
+    Send the PR context to the LLM and return a structured review result.
+    Uses provider-agnostic interface — supports OpenAI and Anthropic.
+    """
     system_prompt = _build_system_prompt(ctx.custom_rules, historical_patterns)
     user_prompt = _build_user_prompt(ctx)
 
-    completion = await client.beta.chat.completions.parse(
-        model=settings.openai_model,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-        response_format=PRReviewResult,
-        temperature=0.2,
-    )
+    provider = get_provider()
+    raw = await provider.complete(system_prompt, user_prompt)
 
-    result = completion.choices[0].message.parsed
-    if result is None:
-        raise ValueError("LLM returned unparseable response")
+    if isinstance(raw, PRReviewResult):
+        return raw
 
-    return result
+    raw = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+    data = json.loads(raw)
+    return PRReviewResult(**data)
