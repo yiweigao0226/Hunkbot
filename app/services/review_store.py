@@ -45,6 +45,40 @@ async def save_review(db: AsyncSession, repo: str, pr_number: int, result: PRRev
     logger.info(f"Saved review for {repo} PR #{pr_number} — {len(result.comments)} comments")
 
 
+async def annotate_with_patterns(db: AsyncSession, repo: str, result: PRReviewResult, similarity_threshold: float = 0.15) -> None:
+    """
+    For each comment in result, find the most similar past comment from this repo.
+    If one is found within the similarity threshold, attach a recurring_note.
+    Mutates result.comments in place.
+    """
+    from app.core.models import ReviewComment as ReviewCommentModel
+    for c in result.comments:
+        query_text = f"{c.severity} {c.category}: {c.comment}"
+        try:
+            query_embedding = await embed_text(query_text)
+            stmt = (
+                select(
+                    ReviewComment.comment,
+                    ReviewComment.severity,
+                    ReviewComment.category,
+                    ReviewComment.embedding.cosine_distance(query_embedding).label("distance"),
+                )
+                .join(Review)
+                .where(Review.repo == repo)
+                .where(ReviewComment.embedding.isnot(None))
+                .order_by(ReviewComment.embedding.cosine_distance(query_embedding))
+                .limit(1)
+            )
+            row = (await db.execute(stmt)).fetchone()
+            if row and row.distance is not None and row.distance < similarity_threshold:
+                c.recurring_note = (
+                    f"Recurring pattern ({row.severity.upper()} {row.category}): "
+                    f"{row.comment}"
+                )
+        except Exception:
+            logger.warning(f"Failed vector lookup for comment in {repo}, skipping annotation")
+
+
 async def get_repo_patterns(db: AsyncSession, repo: str, query_text: str = "", limit: int = 5) -> list[str]:
     # If we have a query and past comments have embeddings, use vector similarity search
     if query_text:
