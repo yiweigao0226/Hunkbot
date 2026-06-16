@@ -84,7 +84,7 @@ def post_review(pr: PullRequest, result: PRReviewResult) -> None:
             review_body += f"**{emoji} {c.category.upper()}** — `{c.file}` line {c.line}\n\n"
             review_body += f"{c.comment}\n\n"
             if c.recurring_note:
-                review_body += f"⚠️ **Recurring pattern:** {c.recurring_note}\n\n"
+                review_body += f"⚠️ **Recurring pattern** {c.recurring_note}\n\n"
             if c.suggestion:
                 review_body += f"**Suggestion:**\n```\n{c.suggestion}\n```\n\n"
             review_body += "---\n\n"
