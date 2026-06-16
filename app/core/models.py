@@ -19,6 +19,10 @@ class ReviewComment(BaseModel):
         default=None,
         description="Concrete fix or improved code snippet if applicable"
     )
+    recurring_note: Optional[str] = Field(
+        default=None,
+        description="Set if a similar issue was found in past reviews of this repo"
+    )
 
 
 class PRReviewResult(BaseModel):

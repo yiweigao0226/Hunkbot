@@ -13,7 +13,7 @@ import logging
 
 from fastapi import APIRouter, Header, HTTPException, Request, BackgroundTasks
 from app.core.database import AsyncSessionLocal
-from app.services.review_store import save_review, get_repo_patterns
+from app.services.review_store import save_review, get_repo_patterns, annotate_with_patterns
 
 from app.core.config import settings
 from app.services.diff_processor import process_pr_files
@@ -79,6 +79,9 @@ async def _handle_pr_event(payload: dict) -> None:
             f"PR #{pr_number}: review complete — "
             f"{len(result.comments)} comments, approved={result.approved}"
         )
+
+        async with AsyncSessionLocal() as db:
+            await annotate_with_patterns(db, repo_full_name, result)
 
         post_review(pr, result)
 
