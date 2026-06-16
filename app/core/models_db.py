@@ -4,6 +4,7 @@ SQLAlchemy ORM models for persisting review results.
 from datetime import datetime
 from sqlalchemy import String, Integer, Boolean, DateTime, ForeignKey, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from pgvector.sqlalchemy import Vector
 
 from app.core.database import Base
 
@@ -32,5 +33,6 @@ class ReviewComment(Base):
     severity: Mapped[str] = mapped_column(String(20))
     category: Mapped[str] = mapped_column(String(50))
     comment: Mapped[str] = mapped_column(Text)
+    embedding: Mapped[list] = mapped_column(Vector(1536), nullable=True)
 
     review: Mapped["Review"] = relationship(back_populates="comments")

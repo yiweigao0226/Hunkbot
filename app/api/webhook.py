@@ -67,7 +67,7 @@ async def _handle_pr_event(payload: dict) -> None:
             return
 
         async with AsyncSessionLocal() as db:
-            patterns = await get_repo_patterns(db, repo_full_name)
+            patterns = await get_repo_patterns(db, repo_full_name, query_text=ctx.pr_title)
             if patterns:
                 logger.info(f"Injecting {len(patterns)} historical patterns for {repo_full_name}")
                 logger.info(f"Historical patterns: {patterns}")
