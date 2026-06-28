@@ -10,6 +10,7 @@ Events handled:
 import hashlib
 import hmac
 import logging
+import uuid
 
 from fastapi import APIRouter, Header, HTTPException, Request, BackgroundTasks
 from app.core.database import AsyncSessionLocal
@@ -18,7 +19,7 @@ from app.services.review_store import save_review, get_repo_patterns, annotate_w
 from app.core.config import settings
 from app.services.diff_processor import process_pr_files
 from app.services.llm_reviewer import review_pr
-from app.services.github_service import get_github_client, post_review
+from app.services.github_service import get_github_client, post_review, post_review_failure_notice
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -55,6 +56,7 @@ async def _handle_pr_event(payload: dict) -> None:
 
     logger.info(f"Reviewing PR #{pr_number} in {repo_full_name} (action={action})")
 
+    pr = None
     try:
         gh = get_github_client(installation_id)
         repo = gh.get_repo(repo_full_name)
@@ -89,7 +91,47 @@ async def _handle_pr_event(payload: dict) -> None:
             await save_review(db, repo_full_name, pr_number, result)
 
     except Exception as e:
-        logger.exception(f"Failed to review PR #{pr_number} in {repo_full_name}: {e}")
+        error_type = type(e).__name__
+        incident_id = uuid.uuid4().hex[:12]
+        # Retryable errors (transient):
+        # - RateLimitError: OpenAI rate limit (will retry in provider)
+        # - APITimeoutError: Timeout (will retry in provider)  
+        # - APIConnectionError: Network (will retry in provider)
+        # Fatal errors:
+        # - ValidationError: Schema mismatch (after all retries exhausted)
+        # - JSONDecodeError: Unparseable response
+        # - Other: Unknown errors
+        
+        is_transient = error_type in {"RateLimitError", "APITimeoutError", "APIConnectionError", "Timeout"}
+        error_level = "warning" if is_transient else "error"
+        
+        logger_fn = getattr(logger, error_level)
+        logger_fn(
+            f"Failed to review PR #{pr_number} in {repo_full_name}: "
+            f"{error_type}: {str(e)[:200]}. "
+            f"(Transient: {is_transient}, Incident: {incident_id})"
+        )
+        logger.exception(f"Full traceback for PR #{pr_number} (incident {incident_id}):")
+
+        if pr is not None:
+            try:
+                if is_transient:
+                    failure_category = "temporary"
+                elif error_type in {"ValidationError", "JSONDecodeError", "ValueError"}:
+                    failure_category = "schema"
+                else:
+                    failure_category = "unexpected"
+
+                post_review_failure_notice(
+                    pr,
+                    failure_category=failure_category,
+                    incident_id=incident_id,
+                )
+            except Exception as notify_err:
+                logger.warning(
+                    f"Failed to post failure notice for PR #{pr_number} in {repo_full_name} "
+                    f"(incident {incident_id}): {notify_err}"
+                )
 
 
 @router.post("/webhook")
