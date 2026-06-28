@@ -11,6 +11,7 @@ This is more secure than OAuth tokens and is the standard for bots.
 import base64
 import os
 import time
+from typing import Literal
 
 import httpx
 import jwt
@@ -19,6 +20,9 @@ from github.PullRequest import PullRequest
 
 from app.core.config import settings
 from app.core.models import PRReviewResult
+
+
+_FAILURE_MARKER = "<!-- hunkbot-review-failure -->"
 
 
 def _get_installation_token(installation_id: int) -> str:
@@ -95,3 +99,37 @@ def post_review(pr: PullRequest, result: PRReviewResult) -> None:
         event=event,
         comments=[], 
     )
+
+
+def post_review_failure_notice(
+    pr: PullRequest,
+    failure_category: Literal["temporary", "schema", "unexpected"],
+    incident_id: str,
+) -> None:
+    """Post a single visible PR comment when automated review fails.
+
+    Note: Keep this message sanitized for PR visibility. Detailed diagnostics
+    stay in server logs and can be correlated via incident_id.
+    """
+    existing_comments = pr.get_issue_comments()
+    for c in existing_comments:
+        if c.body and _FAILURE_MARKER in c.body:
+            return
+
+    retry_hint = "Please push a new commit or re-run the webhook to retry."
+    if failure_category == "temporary":
+        cause_text = "temporary processing error"
+    elif failure_category == "schema":
+        cause_text = "response format validation error"
+    else:
+        cause_text = "unexpected processing error"
+
+    body = (
+        f"{_FAILURE_MARKER}\n"
+        "## AI Review Status\n\n"
+        "The automated AI review could not complete for this PR update.\n\n"
+        f"- Cause category: {cause_text}\n"
+        f"- Incident id: {incident_id}\n\n"
+        f"{retry_hint}"
+    )
+    pr.create_issue_comment(body)
